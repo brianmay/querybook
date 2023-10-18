@@ -50,7 +50,7 @@ class OAuthLoginManager(object):
             "authorization_url": QuerybookSettings.OAUTH_AUTHORIZATION_URL,
             "token_url": QuerybookSettings.OAUTH_TOKEN_URL,
             "profile_url": QuerybookSettings.OAUTH_USER_PROFILE,
-            "scope": "user",
+            "scope": QuerybookSettings.OAUTH_SCOPE,
         }
 
     def init_app(self, flask_app):
