@@ -1,17 +1,14 @@
 from datetime import datetime
 from functools import wraps
-from sqlalchemy.sql.expression import func, and_
 
-from app.flask_app import celery
 from app.db import with_session
-from const.schedule import TaskRunStatus, ScheduleTaskType, UserTaskNames
+from app.flask_app import celery
+from const.schedule import ScheduleTaskType, TaskRunStatus, UserTaskNames
 from lib.sqlalchemy import update_model_fields
-from models.schedule import (
-    TaskSchedule,
-    TaskRunRecord,
-)
-from models.datadoc import DataDoc
 from models.board import BoardItem
+from models.datadoc import DataDoc
+from models.schedule import TaskRunRecord, TaskSchedule
+from sqlalchemy.sql.expression import and_, func
 
 DATADOC_SCHEDULE_PREFIX = "run_data_doc_"
 
@@ -65,7 +62,7 @@ def create_task_schedule(
         kwargs=kwargs or {},
         options=options or {},
         enabled=enabled,
-        task_type=get_schedule_task_type(name).value,
+        task_type=get_schedule_task_type(task).value,
     )
 
     session.add(schedule)
