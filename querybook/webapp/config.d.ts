@@ -106,6 +106,7 @@ declare module 'config/querybook_public_config.yaml' {
         survey?: {
             global_response_cooldown?: number;
             global_trigger_cooldown?: number;
+            global_trigger_duration?: number;
             global_max_per_week?: number;
             global_max_per_day?: number;
 
@@ -113,9 +114,17 @@ declare module 'config/querybook_public_config.yaml' {
                 surface: string;
                 response_cooldown?: number;
                 trigger_cooldown?: number;
+                trigger_duration?: number;
                 max_per_week?: number;
                 max_per_day?: number;
             }>;
+        };
+        table_sampling?: {
+            enabled: boolean;
+            sample_rates: Array<number>;
+            default_sample_rate: number;
+            sample_user_guide_link: string;
+            sampling_tool_tip_delay: number;
         };
     };
     export default data;

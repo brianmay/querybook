@@ -212,12 +212,17 @@ def create_table(
         "name": name,
         "type": type,
         "owner": owner,
-        "table_created_at": datetime.datetime.fromtimestamp(float(table_created_at))
-        if table_created_at
-        else None,
-        "table_updated_by": datetime.datetime.fromtimestamp(float(table_updated_at))
-        if table_updated_at
-        else None,
+        "table_created_at": (
+            datetime.datetime.fromtimestamp(float(table_created_at))
+            if table_created_at
+            else None
+        ),
+        "table_updated_at": (
+            datetime.datetime.fromtimestamp(float(table_updated_at))
+            if table_updated_at
+            else None
+        ),
+        "table_updated_by": table_updated_by,
         "data_size_bytes": data_size_bytes,
         "location": location,
         "column_count": column_count,
@@ -278,6 +283,7 @@ def create_table_information(
     hive_metastore_description=None,
     partition_keys=[],
     custom_properties=None,
+    table_links=None,
     commit=False,
     session=None,
 ):
@@ -296,6 +302,7 @@ def create_table_information(
         hive_metastore_description=hive_metastore_description,
         column_info=column_infomation,
         custom_properties=custom_properties,
+        table_links=table_links,
     )
 
     # The reason that we dont add description direclty in
@@ -344,7 +351,9 @@ def create_table_warnings(
                 "message": message,
                 "severity": severity,
                 "table_id": table_id,
-            }
+            },
+            commit=False,
+            session=session,
         )
     if commit:
         session.commit()

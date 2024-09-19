@@ -10,6 +10,7 @@ import React, {
 import toast from 'react-hot-toast';
 import { useDispatch, useSelector } from 'react-redux';
 
+import { DataDocTableSamplingInfo } from 'components/DataDocTableSamplingInfo/DataDocTableSamplingInfo';
 import { DataDocTemplateInfoButton } from 'components/DataDocTemplateButton/DataDocTemplateInfoButton';
 import { DataDocTemplateVarForm } from 'components/DataDocTemplateButton/DataDocTemplateVarForm';
 import { detectVariableType } from 'components/DataDocTemplateButton/helpers';
@@ -30,6 +31,7 @@ import { UDFForm } from 'components/UDFForm/UDFForm';
 import { ComponentType, ElementType } from 'const/analytics';
 import { IDataDocMetaVariable } from 'const/datadoc';
 import KeyMap from 'const/keyMap';
+import { IDataTable } from 'const/metastore';
 import { IQueryEngine } from 'const/queryEngine';
 import { ISearchOptions, ISearchResult } from 'const/searchAndReplace';
 import { SurveySurfaceType } from 'const/survey';
@@ -159,6 +161,40 @@ const useRowLimit = (dispatch: Dispatch, environmentId: number) => {
     );
 
     return { rowLimit, setRowLimit };
+};
+
+const useTableSampleRate = (
+    dispatch: Dispatch,
+    environmentId: number,
+    samplingTables: Record<string, any>
+) => {
+    const sampleRate = useSelector(
+        (state: IStoreState) => state.adhocQuery[environmentId]?.sampleRate ?? 0
+    );
+    const setSampleRate = useCallback(
+        (newSampleRate: number) =>
+            dispatch(
+                adhocQueryActions.receiveAdhocQuery(
+                    { sampleRate: newSampleRate },
+                    environmentId
+                )
+            ),
+        [dispatch, environmentId]
+    );
+
+    const getSampleRate = useCallback(
+        () => (Object.keys(samplingTables).length > 0 ? sampleRate : -1),
+        [sampleRate, samplingTables]
+    );
+
+    const getSamplingTables = useCallback(() => {
+        Object.keys(samplingTables).forEach((tableName) => {
+            samplingTables[tableName].sample_rate = getSampleRate();
+        });
+        return samplingTables;
+    }, [getSampleRate, samplingTables]);
+
+    return { setSampleRate, getSampleRate, getSamplingTables };
 };
 
 const useTemplatedVariables = (dispatch: Dispatch, environmentId: number) => {
@@ -393,7 +429,9 @@ const QueryComposer: React.FC = () => {
         environmentId
     );
     const { rowLimit, setRowLimit } = useRowLimit(dispatch, environmentId);
-
+    const [samplingTables, setSamplingTables] = useState({});
+    const { setSampleRate, getSampleRate, getSamplingTables } =
+        useTableSampleRate(dispatch, environmentId, samplingTables);
     const [resultsCollapsed, setResultsCollapsed] = useState(false);
 
     const { searchAndReplaceProps, searchAndReplaceRef } =
@@ -414,6 +452,9 @@ const QueryComposer: React.FC = () => {
         useState(false);
 
     const [hasLintErrors, setHasLintErrors] = useState(false);
+
+    const [showTableSamplingInfoModal, setShowTableSamplingInfoModal] =
+        useState(false);
 
     const runButtonRef = useRef<IQueryRunButtonHandles>(null);
     const clickOnRunButton = useCallback(() => {
@@ -470,21 +511,42 @@ const QueryComposer: React.FC = () => {
     }, [query, queryEditorRef]);
 
     const triggerSurvey = useSurveyTrigger();
+
+    const getQueryExecutionMetadata = useCallback(() => {
+        const metadata = {};
+
+        const sampleRate = getSampleRate();
+        if (sampleRate > 0) {
+            metadata['sample_rate'] = sampleRate;
+        }
+
+        return Object.keys(metadata).length === 0 ? null : metadata;
+    }, [getSampleRate]);
+
     const handleRunQuery = React.useCallback(async () => {
+        const sampleRate = getSampleRate();
+        const samplingTables = getSamplingTables();
+        const queryExecutionMetadata = getQueryExecutionMetadata();
+
         trackClick({
             component: ComponentType.ADHOC_QUERY,
             element: ElementType.RUN_QUERY_BUTTON,
             aux: {
                 lintError: hasLintErrors,
+                sampleRate,
             },
         });
         // Throttle to prevent double run
         await sleep(250);
+
         const transformedQuery = await transformQuery(
             getCurrentSelectedQuery(),
+            engine.language,
             templatedVariables,
             engine,
-            rowLimit
+            rowLimit,
+            samplingTables,
+            sampleRate
         );
 
         const queryId = await runQuery(
@@ -492,7 +554,12 @@ const QueryComposer: React.FC = () => {
             engine.id,
             async (query, engineId) => {
                 const data = await dispatch(
-                    queryExecutionsAction.createQueryExecution(query, engineId)
+                    queryExecutionsAction.createQueryExecution(
+                        query,
+                        engineId,
+                        null,
+                        queryExecutionMetadata
+                    )
                 );
                 return data.id;
             }
@@ -505,14 +572,17 @@ const QueryComposer: React.FC = () => {
             setResultsCollapsed(false);
         }
     }, [
-        rowLimit,
+        getSampleRate,
+        getSamplingTables,
+        getQueryExecutionMetadata,
+        hasLintErrors,
+        getCurrentSelectedQuery,
         engine,
         templatedVariables,
-        dispatch,
-        getCurrentSelectedQuery,
-        setExecutionId,
-        hasLintErrors,
+        rowLimit,
         triggerSurvey,
+        dispatch,
+        setExecutionId,
     ]);
 
     const keyMap = useKeyMap(clickOnRunButton, queryEngines, setEngineId);
@@ -537,6 +607,22 @@ const QueryComposer: React.FC = () => {
         []
     );
 
+    const handleTablesChange = React.useCallback(
+        async (tablesByName: Record<string, IDataTable>) => {
+            const samplingTables = {};
+            Object.keys(tablesByName).forEach((tableName) => {
+                const table = tablesByName[tableName];
+                if (table?.custom_properties?.sampling) {
+                    samplingTables[tableName] = {
+                        sampled_table: table.custom_properties?.sampled_table,
+                    };
+                }
+            });
+            setSamplingTables(samplingTables);
+        },
+        [setSamplingTables]
+    );
+
     const editorDOM = (
         <>
             <BoundQueryEditor
@@ -550,6 +636,7 @@ const QueryComposer: React.FC = () => {
                 onSelection={handleEditorSelection}
                 getLintErrors={getLintAnnotations}
                 onLintCompletion={setHasLintErrors}
+                onTablesChange={handleTablesChange}
             />
         </>
     );
@@ -589,7 +676,16 @@ const QueryComposer: React.FC = () => {
                     >
                         <IconButton icon="ChevronDown" noPadding />
                     </div>
-                    <QueryComposerExecution id={executionId} />
+                    <QueryComposerExecution
+                        id={executionId}
+                        onSamplingInfoClick={() =>
+                            setShowTableSamplingInfoModal(true)
+                        }
+                        hasSamplingTables={
+                            Object.keys(samplingTables).length > 0
+                        }
+                        sampleRate={getSampleRate()}
+                    />
                 </div>
             </Resizable>
         );
@@ -611,6 +707,15 @@ const QueryComposer: React.FC = () => {
         </Modal>
     );
 
+    const renderTableSamplingInfoDOM = showTableSamplingInfoModal && (
+        <DataDocTableSamplingInfo
+            query={getCurrentSelectedQuery()}
+            language={engine.language}
+            samplingTables={getSamplingTables()}
+            onHide={() => setShowTableSamplingInfoModal(false)}
+        />
+    );
+
     const queryEditorWrapperClassname = clsx({
         'query-editor-wrapper': true,
         mb16: executionId != null,
@@ -628,6 +733,7 @@ const QueryComposer: React.FC = () => {
             </div>
             {executionDOM()}
             {udfModalDOM}
+            {renderTableSamplingInfoDOM}
         </div>
     );
 
@@ -644,6 +750,12 @@ const QueryComposer: React.FC = () => {
                 runButtonTooltipPos={'down'}
                 rowLimit={rowLimit}
                 onRowLimitChange={setRowLimit}
+                hasSamplingTables={Object.keys(samplingTables).length > 0}
+                sampleRate={getSampleRate()}
+                onSampleRateChange={setSampleRate}
+                onTableSamplingInfoClick={() =>
+                    setShowTableSamplingInfoModal(true)
+                }
             />
         </div>
     );

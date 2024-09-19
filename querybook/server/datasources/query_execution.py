@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from flask import abort, Response, redirect
+from flask import abort, Response, redirect, request
 from flask_login import current_user
 
 from app.flask_app import socketio
@@ -61,7 +61,9 @@ QUERY_RESULT_LIMIT_CONFIG = get_config_value("query_result_limit")
 
 
 @register("/query_execution/", methods=["POST"])
-def create_query_execution(query, engine_id, data_cell_id=None, originator=None):
+def create_query_execution(
+    query, engine_id, metadata=None, data_cell_id=None, originator=None
+):
     with DBSession() as session:
         verify_query_engine_permission(engine_id, session=session)
 
@@ -69,6 +71,15 @@ def create_query_execution(query, engine_id, data_cell_id=None, originator=None)
         query_execution = logic.create_query_execution(
             query=query, engine_id=engine_id, uid=uid, session=session
         )
+
+        metadata = metadata or {}
+        used_api_token = request.headers.get("api-access-token") is not None
+        if used_api_token:
+            metadata["used_api_token"] = used_api_token
+        if metadata:
+            logic.create_query_execution_metadata(
+                query_execution.id, metadata, session=session
+            )
 
         data_doc = None
         if data_cell_id:
@@ -256,6 +267,15 @@ def get_query_execution_error(query_execution_id):
     with DBSession() as session:
         verify_query_execution_permission(query_execution_id, session=session)
         return logic.get_query_execution_error(query_execution_id, session=session)
+
+
+@register("/query_execution/<int:query_execution_id>/metadata/", methods=["GET"])
+def get_query_execution_metadata(query_execution_id):
+    verify_query_execution_permission(query_execution_id)
+    execution_metadata = logic.get_query_execution_metadata_by_execution_id(
+        query_execution_id
+    )
+    return execution_metadata.to_dict() if execution_metadata is not None else None
 
 
 @register(
